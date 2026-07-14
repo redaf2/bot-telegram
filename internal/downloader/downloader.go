@@ -1,0 +1,213 @@
+package downloader
+
+import (
+	"bufio"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ProgressCallback функция для обновления прогресса
+type ProgressCallback func(percent float64, downloaded, total string, speed, eta string)
+
+type Downloader struct {
+	tempFolder string
+	onProgress ProgressCallback // Колбэк для прогресса
+	lastUpdate time.Time
+}
+
+func NewDownloader(tempFolder string) *Downloader {
+	os.MkdirAll(tempFolder, 0755)
+	return &Downloader{
+		tempFolder: tempFolder,
+	}
+}
+
+// SetProgressCallback устанавливает функцию для обновления прогресса
+func (d *Downloader) SetProgressCallback(callback ProgressCallback) {
+	d.onProgress = callback
+}
+
+func (d *Downloader) CheckDependencies() {
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		log.Println("❌ yt-dlp не найден:", err)
+	} else {
+		log.Println("✅ yt-dlp найден")
+	}
+
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		log.Println("❌ ffmpeg не найден:", err)
+	} else {
+		log.Println("✅ ffmpeg найден")
+	}
+}
+
+func (d *Downloader) Download(url string) (string, error) {
+	timestamp := time.Now().UnixNano()
+	filename := fmt.Sprintf("%d", timestamp)
+	outputPath := filepath.Join(d.tempFolder, filename)
+
+	// Для MacOS с Apple Silicon используй полный путь
+	ytDlpPath := "yt-dlp"
+	// Если на Mac не работает, раскомментируй следующую строку:
+	// ytDlpPath = "/opt/homebrew/bin/yt-dlp"
+
+	// Создаём команду с прогрессом
+	cmd := exec.Command(
+		ytDlpPath,
+		"-f", "bestaudio/best",
+		"--extract-audio",
+		"--audio-format", "mp3",
+		"--audio-quality", "192K",
+		"-o", outputPath+".%(ext)s",
+		"--progress",
+		"--newline",
+		url,
+	)
+
+	// Захватываем вывод прогресса
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать pipe для вывода: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать pipe для ошибок: %w", err)
+	}
+
+	// Запускаем команду
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("не удалось запустить yt-dlp: %w", err)
+	}
+
+	// Читаем прогресс в реальном времени
+	go d.readProgress(stdout)
+
+	// Читаем ошибки
+	errBytes, _ := io.ReadAll(stderr)
+
+	// Ждём завершения
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("yt-dlp ошибка: %w\n%s", err, string(errBytes))
+	}
+
+	// Ищем файл с нужным расширением
+	files, err := filepath.Glob(outputPath + ".*")
+	if err != nil || len(files) == 0 {
+		return "", fmt.Errorf("не найден скачанный файл")
+	}
+
+	audioFile := files[0]
+	if !strings.HasSuffix(audioFile, ".mp3") {
+		return "", fmt.Errorf("скачался не MP3 файл: %s", audioFile)
+	}
+
+	return audioFile, nil
+}
+
+// readProgress читает и выводит прогресс загрузки
+func (d *Downloader) readProgress(pipe io.ReadCloser) {
+	scanner := bufio.NewScanner(pipe)
+
+	// Регулярные выражения для парсинга прогресса
+	percentRe := regexp.MustCompile(`\[download\]\s+(\d+\.\d+)%`)
+	downloadedRe := regexp.MustCompile(`\[download\]\s+(\d+\.\d+)(KiB|MiB|GiB)`)
+	speedRe := regexp.MustCompile(`at\s+(\d+\.\d+)(KiB|MiB|GiB)/s`)
+	etaRe := regexp.MustCompile(`ETA\s+(\d+:\d+(?::\d+)?)`)
+	totalRe := regexp.MustCompile(`of\s+~?\s*([\d.]+)\s*(KiB|MiB|GiB)`)
+
+	var percent float64
+	var downloaded, total float64
+	var speed float64
+	var eta string
+	var totalUnit, downloadedUnit string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Парсим процент
+		if matches := percentRe.FindStringSubmatch(line); len(matches) > 1 {
+			percent, _ = strconv.ParseFloat(matches[1], 64)
+		}
+
+		// Парсим скачанный размер
+		if matches := downloadedRe.FindStringSubmatch(line); len(matches) > 2 {
+			downloaded, _ = strconv.ParseFloat(matches[1], 64)
+			downloadedUnit = matches[2]
+		}
+
+		// Парсим общий размер
+		if matches := totalRe.FindStringSubmatch(line); len(matches) > 2 {
+			total, _ = strconv.ParseFloat(matches[1], 64)
+			totalUnit = matches[2]
+		}
+
+		// Парсим скорость
+		if matches := speedRe.FindStringSubmatch(line); len(matches) > 2 {
+			speed, _ = strconv.ParseFloat(matches[1], 64)
+		}
+
+		// Парсим ETA
+		if matches := etaRe.FindStringSubmatch(line); len(matches) > 1 {
+			eta = matches[1]
+		}
+
+		// Обновляем прогресс каждые 0.5 секунды
+		if time.Since(d.lastUpdate) > 500*time.Millisecond && d.onProgress != nil {
+			d.lastUpdate = time.Now()
+
+			// Форматируем размеры
+			downloadedStr := formatSize(downloaded, downloadedUnit)
+			totalStr := formatSize(total, totalUnit)
+			speedStr := formatSpeed(speed)
+
+			// Вызываем колбэк
+			d.onProgress(percent, downloadedStr, totalStr, speedStr, eta)
+		}
+	}
+}
+
+// formatSize форматирует размер в человеко-читаемый вид
+func formatSize(size float64, unit string) string {
+	// Конвертируем в байты
+	var bytes float64
+	switch unit {
+	case "KiB":
+		bytes = size * 1024
+	case "MiB":
+		bytes = size * 1024 * 1024
+	case "GiB":
+		bytes = size * 1024 * 1024 * 1024
+	default:
+		bytes = size
+	}
+
+	if bytes < 1024 {
+		return fmt.Sprintf("%.0f B", bytes)
+	} else if bytes < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", bytes/1024)
+	} else if bytes < 1024*1024*1024 {
+		return fmt.Sprintf("%.1f MB", bytes/1024/1024)
+	}
+	return fmt.Sprintf("%.2f GB", bytes/1024/1024/1024)
+}
+
+// formatSpeed форматирует скорость
+func formatSpeed(speed float64) string {
+	if speed == 0 {
+		return "⏳ вычисляется..."
+	}
+
+	if speed < 1024 {
+		return fmt.Sprintf("%.1f KB/s", speed)
+	}
+	return fmt.Sprintf("%.1f MB/s", speed/1024)
+}
