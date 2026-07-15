@@ -1,29 +1,22 @@
 FROM golang:1.21-alpine
 
-# Устанавливаем ffmpeg и yt-dlp
+# Устанавливаем ffmpeg, python3, pip и yt-dlp
 RUN apk add --no-cache \
     ffmpeg \
-    yt-dlp \
-    bash \
-    curl
+    python3 \
+    py3-pip \
+    && pip3 install --upgrade pip \
+    && pip3 install yt-dlp
 
 WORKDIR /app
 
-# Копируем зависимости
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Копируем код
 COPY . .
 
-# Собираем бота
 RUN go build -o bot cmd/bot/main.go
-
-# Создаём папку для временных файлов
 RUN mkdir -p temp
-
-# Проверяем, что yt-dlp установлен
 RUN yt-dlp --version
 
-# Запускаем бота
 CMD ["./bot"]
