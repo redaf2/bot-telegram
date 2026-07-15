@@ -65,15 +65,12 @@ func (b *Bot) Run() error {
 func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 
-	// Команда /start
 	if msg.IsCommand() && msg.Command() == "start" {
-		reply := tgbotapi.NewMessage(chatID, "🎵 Отправь мне ссылку на видео, и я пришлю аудио!\n\n"+
-			"Поддерживаются: YouTube, SoundCloud, VK, TikTok и другие.")
+		reply := tgbotapi.NewMessage(chatID, "🎵 Отправь мне ссылку на видео, и я пришлю аудио!\n\nПоддерживаются: YouTube, SoundCloud, VK, TikTok и другие.")
 		b.api.Send(reply)
 		return
 	}
 
-	// Проверяем ссылку
 	url := strings.TrimSpace(msg.Text)
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		reply := tgbotapi.NewMessage(chatID, "❌ Это не похоже на ссылку. Отправь валидный URL.")
@@ -81,39 +78,29 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// Статус "загрузка"
 	statusMsg := tgbotapi.NewMessage(chatID, "⏳ Скачиваю аудио...")
 	sentStatus, _ := b.api.Send(statusMsg)
 
-	// Устанавливаем колбэк для прогресса
-	var lastProgressMsg string
+	b.down.SetProgressCallback(func(percent float64, downloaded, total, speed, eta string, spinner string) {
+		if percent == 0 && downloaded == "0 B" {
+			progressMsg := fmt.Sprintf("%s Обработка ссылки...", spinner)
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, progressMsg)
+			b.api.Send(editMsg)
+			return
+		}
 
-	b.down.SetProgressCallback(func(percent float64, downloaded, total, speed, eta string) {
-		// Создаём красивый прогресс-бар
-		bar := createProgressBar(percent, 20)
-
+		bar := createProgressBarSimple(percent, 12)
 		progressMsg := fmt.Sprintf(
-			"📥 Загрузка аудио\n\n"+
-				"┌─────────────────────────────┐\n"+
-				"│ %s │ %5.1f%% │\n"+
-				"├─────────────────────────────┤\n"+
-				"│ ⬇️  %s / %s                  │\n"+
-				"│ ⚡ %s │ ⏱️ %s       │\n"+
-				"└─────────────────────────────┘",
+			"📥 Скачивание: [%s] %.0f%%\n📦 %s / %s\n⚡ %s | ⏱️ %s",
 			bar, percent,
 			downloaded, total,
 			speed, eta,
 		)
 
-		// Обновляем только если изменилось
-		if progressMsg != lastProgressMsg {
-			lastProgressMsg = progressMsg
-			editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, progressMsg)
-			b.api.Send(editMsg)
-		}
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, progressMsg)
+		b.api.Send(editMsg)
 	})
 
-	// Скачиваем аудио
 	audioFile, err := b.down.Download(url)
 	if err != nil {
 		errorText := fmt.Sprintf("❌ Ошибка:\n%s", err.Error())
@@ -122,7 +109,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// Отправляем аудио
 	audio, err := os.Open(audioFile)
 	if err != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, "❌ Не удалось открыть файл")
@@ -145,7 +131,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	// Удаляем статусное сообщение
 	deleteMsg := tgbotapi.NewDeleteMessage(chatID, sentStatus.MessageID)
 	b.api.Send(deleteMsg)
 }
@@ -159,6 +144,16 @@ func createProgressBar(percent float64, width int) string {
 		bar += strings.Repeat("░", width-filled)
 	}
 
+	return bar
+}
+
+func createProgressBarSimple(percent float64, width int) string {
+	filled := int(percent / 100 * float64(width))
+	if filled > width {
+		filled = width
+	}
+	bar := strings.Repeat("█", filled)
+	bar += strings.Repeat("░", width-filled)
 	return bar
 }
 
