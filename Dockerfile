@@ -1,12 +1,9 @@
 FROM golang:1.21-alpine
 
-# Устанавливаем ffmpeg, python3, pip и yt-dlp
+# Устанавливаем ffmpeg и yt-dlp
 RUN apk add --no-cache \
     ffmpeg \
-    python3 \
-    py3-pip \
-    && pip3 install --upgrade pip \
-    && pip3 install yt-dlp
+    yt-dlp
 
 WORKDIR /app
 
