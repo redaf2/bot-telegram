@@ -19,7 +19,7 @@ type ProgressCallback func(percent float64, downloaded, total string, speed, eta
 
 type Downloader struct {
 	tempFolder string
-	onProgress ProgressCallback // Колбэк для прогресса
+	onProgress ProgressCallback
 	lastUpdate time.Time
 }
 
@@ -50,23 +50,23 @@ func (d *Downloader) CheckDependencies() {
 }
 
 func (d *Downloader) Download(url string) (string, error) {
+	// Генерируем временный путь для скачивания
 	timestamp := time.Now().UnixNano()
-	filename := fmt.Sprintf("%d", timestamp)
-	outputPath := filepath.Join(d.tempFolder, filename)
+	tempPath := filepath.Join(d.tempFolder, fmt.Sprintf("temp_%d", timestamp))
 
 	// Для MacOS с Apple Silicon используй полный путь
 	ytDlpPath := "yt-dlp"
 	// Если на Mac не работает, раскомментируй следующую строку:
 	// ytDlpPath = "/opt/homebrew/bin/yt-dlp"
 
-	// Создаём команду с прогрессом
+	// Создаём команду для скачивания
 	cmd := exec.Command(
 		ytDlpPath,
 		"-f", "bestaudio/best",
 		"--extract-audio",
 		"--audio-format", "mp3",
 		"--audio-quality", "192K",
-		"-o", outputPath+".%(ext)s",
+		"-o", tempPath+".%(ext)s",
 		"--progress",
 		"--newline",
 		url,
@@ -99,18 +99,30 @@ func (d *Downloader) Download(url string) (string, error) {
 		return "", fmt.Errorf("yt-dlp ошибка: %w\n%s", err, string(errBytes))
 	}
 
-	// Ищем файл с нужным расширением
-	files, err := filepath.Glob(outputPath + ".*")
+	// Ищем скачанный файл
+	files, err := filepath.Glob(tempPath + ".*")
 	if err != nil || len(files) == 0 {
 		return "", fmt.Errorf("не найден скачанный файл")
 	}
+	oldPath := files[0]
 
-	audioFile := files[0]
-	if !strings.HasSuffix(audioFile, ".mp3") {
-		return "", fmt.Errorf("скачался не MP3 файл: %s", audioFile)
+	// Получаем название видео через yt-dlp
+	title, err := getVideoTitle(url)
+	if err != nil {
+		title = fmt.Sprintf("audio_%d", timestamp)
 	}
 
-	return audioFile, nil
+	// Очищаем название от недопустимых символов
+	safeTitle := sanitizeFilename(title)
+	newPath := filepath.Join(d.tempFolder, safeTitle+".mp3")
+
+	// Переименовываем файл
+	if err := os.Rename(oldPath, newPath); err != nil {
+		// Если не удалось переименовать, оставляем как есть
+		return oldPath, nil
+	}
+
+	return newPath, nil
 }
 
 // readProgress читает и выводит прогресс загрузки
@@ -173,6 +185,38 @@ func (d *Downloader) readProgress(pipe io.ReadCloser) {
 			d.onProgress(percent, downloadedStr, totalStr, speedStr, eta)
 		}
 	}
+}
+
+// getVideoTitle получает название видео через yt-dlp
+func getVideoTitle(url string) (string, error) {
+	cmd := exec.Command(
+		"yt-dlp",
+		"--get-title",
+		"--no-warnings",
+		url,
+	)
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	title := strings.TrimSpace(string(output))
+	return title, nil
+}
+
+// sanitizeFilename удаляет недопустимые символы из названия
+func sanitizeFilename(filename string) string {
+	// Заменяем недопустимые символы на "_"
+	re := regexp.MustCompile(`[<>:"/\\|?*]|[\x00-\x1f]`)
+	safe := re.ReplaceAllString(filename, "_")
+
+	// Ограничиваем длину (макс 100 символов)
+	if len(safe) > 100 {
+		safe = safe[:100]
+	}
+
+	return safe
 }
 
 // formatSize форматирует размер в человеко-читаемый вид

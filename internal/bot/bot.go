@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"audiobot/internal/config"
 	"audiobot/internal/downloader"
@@ -39,6 +41,9 @@ func (b *Bot) Run() error {
 	// Проверяем наличие yt-dlp и ffmpeg
 	b.down.CheckDependencies()
 
+	// Запускаем очистку старых файлов
+	go b.cleanTempFolder()
+
 	// Настраиваем обновления
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
@@ -62,7 +67,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 
 	// Команда /start
 	if msg.IsCommand() && msg.Command() == "start" {
-		reply := tgbotapi.NewMessage(chatID, "🎵 Отправь мне ссылку на видео, и я пришлю аудио!")
+		reply := tgbotapi.NewMessage(chatID, "🎵 Отправь мне ссылку на видео, и я пришлю аудио!\n\n"+
+			"Поддерживаются: YouTube, SoundCloud, VK, TikTok и другие.")
 		b.api.Send(reply)
 		return
 	}
@@ -127,7 +133,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	defer os.Remove(audioFile)
 
 	audioMsg := tgbotapi.NewAudio(chatID, tgbotapi.FileReader{
-		Name:   audioFile[strings.LastIndex(audioFile, "/")+1:],
+		Name:   filepath.Base(audioFile),
 		Reader: audio,
 	})
 	audioMsg.Caption = "🎧 Вот твоё аудио!"
@@ -154,4 +160,22 @@ func createProgressBar(percent float64, width int) string {
 	}
 
 	return bar
+}
+
+// cleanTempFolder очищает старые файлы
+func (b *Bot) cleanTempFolder() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		files, _ := filepath.Glob(filepath.Join(b.cfg.TempFolder, "*"))
+		for _, file := range files {
+			// Удаляем файлы старше 1 часа
+			info, err := os.Stat(file)
+			if err == nil && time.Since(info.ModTime()) > 1*time.Hour {
+				os.Remove(file)
+				log.Printf("🧹 Удалён старый файл: %s", filepath.Base(file))
+			}
+		}
+	}
 }
