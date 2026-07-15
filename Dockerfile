@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine
+FROM golang:1.24-alpine
 
 # Добавляем репозиторий, где есть yt-dlp
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
