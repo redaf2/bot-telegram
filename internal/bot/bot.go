@@ -28,7 +28,6 @@ func NewBot(cfg *config.Config) *Bot {
 }
 
 func (b *Bot) Run() error {
-	// Инициализируем бота
 	bot, err := tgbotapi.NewBotAPI(b.cfg.Token)
 	if err != nil {
 		return fmt.Errorf("ошибка создания бота: %w", err)
@@ -38,50 +37,86 @@ func (b *Bot) Run() error {
 	bot.Debug = true
 	log.Printf("✅ Бот @%s запущен!", bot.Self.UserName)
 
-	// Проверяем наличие yt-dlp и ffmpeg
 	b.down.CheckDependencies()
-
-	// Запускаем очистку старых файлов
 	go b.cleanTempFolder()
 
-	// Настраиваем обновления
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
 	updates := bot.GetUpdatesChan(u)
 
-	// Обработка сообщений
 	for update := range updates {
+		// Обработка нажатий на кнопки
+		if update.CallbackQuery != nil {
+			callback := update.CallbackQuery
+			data := callback.Data
+
+			b.api.Send(tgbotapi.NewCallback(callback.ID, "Обрабатываю..."))
+
+			// Формат: normal_https://... или slow_https://...
+			parts := strings.SplitN(data, "_", 2)
+			if len(parts) != 2 {
+				b.api.Send(tgbotapi.NewMessage(callback.Message.Chat.ID, "❌ Ошибка: неверный формат"))
+				continue
+			}
+
+			mode := parts[0] // "normal" или "slow"
+			url := parts[1]
+
+			// Удаляем сообщение с кнопками
+			deleteMsg := tgbotapi.NewDeleteMessage(callback.Message.Chat.ID, callback.Message.MessageID)
+			b.api.Send(deleteMsg)
+
+			// Обрабатываем аудио (для замедления используем 0.8 = 20%)
+			go b.processAudio(callback.Message.Chat.ID, url, mode == "slow", 0.8)
+			continue
+		}
+
 		if update.Message == nil {
 			continue
 		}
 
-		go b.handleMessage(update.Message)
+		msg := update.Message
+		chatID := msg.Chat.ID
+
+		if msg.IsCommand() && msg.Command() == "start" {
+			reply := tgbotapi.NewMessage(chatID, "🎵 Отправь мне ссылку на видео!\n\n"+
+				"Я пришлю аудио. Ты сможешь выбрать:\n"+
+				"🎧 Обычная версия\n"+
+				"🐢 Замедленная + реверберация (slowed + reverb)")
+			b.api.Send(reply)
+			continue
+		}
+
+		url := strings.TrimSpace(msg.Text)
+		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+			reply := tgbotapi.NewMessage(chatID, "❌ Это не похоже на ссылку. Отправь валидный URL.")
+			b.api.Send(reply)
+			continue
+		}
+
+		// --- 2 КНОПКИ ---
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🎧 Обычная", "normal_"+url),
+				tgbotapi.NewInlineKeyboardButtonData("🐢 Замедленная", "slow_"+url),
+			),
+		)
+
+		msgWithButtons := tgbotapi.NewMessage(chatID, "🎵 Что сделать с этим видео?")
+		msgWithButtons.ReplyMarkup = keyboard
+		b.api.Send(msgWithButtons)
 	}
 
 	return nil
 }
 
-func (b *Bot) handleMessage(msg *tgbotapi.Message) {
-	chatID := msg.Chat.ID
-
-	if msg.IsCommand() && msg.Command() == "start" {
-		reply := tgbotapi.NewMessage(chatID, "🎵 Отправь мне ссылку на видео, и я пришлю аудио!\n\nПоддерживаются: YouTube, SoundCloud, VK, TikTok и другие.")
-		b.api.Send(reply)
-		return
-	}
-
-	url := strings.TrimSpace(msg.Text)
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		reply := tgbotapi.NewMessage(chatID, "❌ Это не похоже на ссылку. Отправь валидный URL.")
-		b.api.Send(reply)
-		return
-	}
-
+func (b *Bot) processAudio(chatID int64, url string, slow bool, speed float64) {
 	statusMsg := tgbotapi.NewMessage(chatID, "⏳ Скачиваю аудио...")
 	sentStatus, _ := b.api.Send(statusMsg)
 
-	b.down.SetProgressCallback(func(percent float64, downloaded, total, speed, eta string, spinner string) {
+	var lastProgressMsg string
+	b.down.SetProgressCallback(func(percent float64, downloaded, total, speedStr, eta string, spinner string) {
 		if percent == 0 && downloaded == "0 B" {
 			progressMsg := fmt.Sprintf("%s Обработка ссылки...", spinner)
 			editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, progressMsg)
@@ -94,13 +129,17 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			"📥 Скачивание: [%s] %.0f%%\n📦 %s / %s\n⚡ %s | ⏱️ %s",
 			bar, percent,
 			downloaded, total,
-			speed, eta,
+			speedStr, eta,
 		)
 
-		editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, progressMsg)
-		b.api.Send(editMsg)
+		if progressMsg != lastProgressMsg {
+			lastProgressMsg = progressMsg
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, progressMsg)
+			b.api.Send(editMsg)
+		}
 	})
 
+	// Скачиваем аудио
 	audioFile, err := b.down.Download(url)
 	if err != nil {
 		errorText := fmt.Sprintf("❌ Ошибка:\n%s", err.Error())
@@ -109,6 +148,48 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
+	// Если запрошено замедление + reverb
+	if slow {
+		editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, "🐢 Замедляю + добавляю реверберацию...")
+		b.api.Send(editMsg)
+
+		slowFile, err := b.down.SlowAudio(audioFile, speed)
+		if err != nil {
+			errorText := fmt.Sprintf("❌ Ошибка замедления:\n%s", err.Error())
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, errorText)
+			b.api.Send(editMsg)
+			return
+		}
+
+		audio, err := os.Open(slowFile)
+		if err != nil {
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, "❌ Не удалось открыть файл")
+			b.api.Send(editMsg)
+			return
+		}
+		defer audio.Close()
+		defer os.Remove(slowFile)
+		defer os.Remove(audioFile)
+
+		audioMsg := tgbotapi.NewAudio(chatID, tgbotapi.FileReader{
+			Name:   filepath.Base(slowFile),
+			Reader: audio,
+		})
+		audioMsg.Caption = "🐢 Замедленная + реверберация (slowed + reverb)"
+
+		_, err = b.api.Send(audioMsg)
+		if err != nil {
+			editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, "❌ Не удалось отправить аудио")
+			b.api.Send(editMsg)
+			return
+		}
+
+		deleteMsg := tgbotapi.NewDeleteMessage(chatID, sentStatus.MessageID)
+		b.api.Send(deleteMsg)
+		return
+	}
+
+	// Отправляем обычное аудио
 	audio, err := os.Open(audioFile)
 	if err != nil {
 		editMsg := tgbotapi.NewEditMessageText(chatID, sentStatus.MessageID, "❌ Не удалось открыть файл")
@@ -135,18 +216,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	b.api.Send(deleteMsg)
 }
 
-// createProgressBar создаёт красивый прогресс-бар
-func createProgressBar(percent float64, width int) string {
-	filled := int(percent / 100 * float64(width))
-
-	bar := strings.Repeat("█", filled)
-	if filled < width {
-		bar += strings.Repeat("░", width-filled)
-	}
-
-	return bar
-}
-
 func createProgressBarSimple(percent float64, width int) string {
 	filled := int(percent / 100 * float64(width))
 	if filled > width {
@@ -157,7 +226,6 @@ func createProgressBarSimple(percent float64, width int) string {
 	return bar
 }
 
-// cleanTempFolder очищает старые файлы
 func (b *Bot) cleanTempFolder() {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
@@ -165,7 +233,6 @@ func (b *Bot) cleanTempFolder() {
 	for range ticker.C {
 		files, _ := filepath.Glob(filepath.Join(b.cfg.TempFolder, "*"))
 		for _, file := range files {
-			// Удаляем файлы старше 1 часа
 			info, err := os.Stat(file)
 			if err == nil && time.Since(info.ModTime()) > 1*time.Hour {
 				os.Remove(file)

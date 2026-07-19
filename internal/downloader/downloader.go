@@ -207,3 +207,36 @@ func formatSpeed(speed float64) string {
 	}
 	return fmt.Sprintf("%.1f MB/s", speed/1024)
 }
+
+// SlowAudio замедляет аудио и добавляет реверберацию
+func (d *Downloader) SlowAudio(inputPath string, percent float64) (string, error) {
+	ext := filepath.Ext(inputPath)
+	base := strings.TrimSuffix(inputPath, ext)
+	outputPath := fmt.Sprintf("%s_slowed_reverb_%.0f%s", base, percent*100, ext)
+
+	// slowed + reverb (эффект как в TikTok)
+	cmd := exec.Command(
+		"ffmpeg",
+		"-i", inputPath,
+		"-filter:a", fmt.Sprintf("atempo=%.1f, reverb", percent),
+		"-y",
+		outputPath,
+	)
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("не удалось запустить ffmpeg: %w", err)
+	}
+
+	errBytes, _ := io.ReadAll(stderr)
+	if err := cmd.Wait(); err != nil {
+		return "", fmt.Errorf("ffmpeg ошибка: %w\n%s", err, string(errBytes))
+	}
+
+	log.Printf("✅ Slowed + Reverb готово: %s (%.0f%%)", outputPath, percent*100)
+	return outputPath, nil
+}
