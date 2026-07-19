@@ -17,6 +17,9 @@ RUN go mod download
 # Копируем код
 COPY . .
 
+# 🔥 ВОТ ЗДЕСЬ ДОБАВЛЯЕМ КОПИРОВАНИЕ КУКОВ:
+COPY cookies.txt /app/cookies.txt
+
 # Собираем бота
 RUN go build -o bot cmd/bot/main.go
 

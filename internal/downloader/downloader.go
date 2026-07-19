@@ -54,7 +54,7 @@ func (d *Downloader) Download(url string) (string, error) {
 	ytDlpPath := "yt-dlp"
 	cmd := exec.Command(
 		ytDlpPath,
-		"--cookies-from-browser", "yandex",
+		"--cookies", "/app/cookies.txt", // ← ИСПОЛЬЗУЕМ ФАЙЛ
 		"-f", "bestaudio/best",
 		"--extract-audio",
 		"--audio-format", "mp3",
