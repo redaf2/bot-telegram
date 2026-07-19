@@ -224,7 +224,7 @@ func (d *Downloader) SlowAudio(inputPath string, percent float64) (string, error
 			"volume=6.4dB,"+
 				"atempo=%.1f,"+
 				"aecho=0.06:0.9:50:0.7,"+
-				"firequalizer=gain_entry='entry(0,24);entry(250,12);entry(500,4);entry(1000,2);entry(4000,-4);entry(16000,-20)'",
+				"firequalizer=gain_entry='entry(0,12);entry(250,12);entry(500,4);entry(1000,2);entry(4000,-4);entry(16000,-20)'",
 			percent,
 		),
 		"-y",
