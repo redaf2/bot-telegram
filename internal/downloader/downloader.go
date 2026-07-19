@@ -215,15 +215,21 @@ func (d *Downloader) SlowAudio(inputPath string, percent float64) (string, error
 	base := strings.TrimSuffix(inputPath, ext)
 	outputPath := fmt.Sprintf("%s_slowed_reverb_%.0f%s", base, percent*100, ext)
 
-	// Путь к файлу реверберации внутри контейнера
+	// Путь к файлу реверберации
 	reverbIRPath := "/app/hall.wav"
 
 	cmd := exec.Command(
 		"ffmpeg",
-		"-i", inputPath, // Входное аудио
-		"-i", reverbIRPath, // Файл реверберации
+		"-i", inputPath,
+		"-i", reverbIRPath,
 		"-filter_complex",
-		fmt.Sprintf("[0:a]atempo=%.1f[a];[a][1:a]afir=dry=0.3:wet=0.7", percent),
+		fmt.Sprintf(
+			"[0:a]atempo=%.1f, "+
+				"bass=g=8:f=110:w=0.8, "+
+				"treble=g=3:f=4000:w=0.5[a]; "+
+				"[a][1:a]afir=dry=0.5:wet=0.5",
+			percent,
+		),
 		"-y",
 		outputPath,
 	)
