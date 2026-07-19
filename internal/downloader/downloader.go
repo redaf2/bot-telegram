@@ -54,9 +54,6 @@ func (d *Downloader) Download(url string) (string, error) {
 	ytDlpPath := "yt-dlp"
 	cmd := exec.Command(
 		ytDlpPath,
-		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		"--add-header", "Accept-Language: ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-		"--add-header", "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
 		"-f", "bestaudio/best",
 		"--extract-audio",
 		"--audio-format", "mp3",

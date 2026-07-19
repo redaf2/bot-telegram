@@ -17,8 +17,6 @@ RUN go mod download
 # Копируем код
 COPY . .
 
-# Копируем куки
-COPY cookies.txt /app/cookies.txt
 
 # Копируем файл реверберации
 COPY hall.wav /app/hall.wav
