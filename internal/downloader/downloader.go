@@ -54,7 +54,6 @@ func (d *Downloader) Download(url string) (string, error) {
 	ytDlpPath := "yt-dlp"
 	cmd := exec.Command(
 		ytDlpPath,
-		"--cookies-from-browser", "yandex", // ← ДЛЯ ЯНДЕКС.БРАУЗЕРА
 		"-f", "bestaudio/best",
 		"--extract-audio",
 		"--audio-format", "mp3",
@@ -225,10 +224,10 @@ func (d *Downloader) SlowAudio(inputPath string, percent float64) (string, error
 		// 3. Добавляем плавное эхо для глубины
 		// 4. Поднимаем высокие частоты для чёткости речи, убираем лишний низ, чтобы не было глухоты
 		fmt.Sprintf(
-			"volume=6.4dB,"+ // Поднимаем громкость на +6.4dB (рекомендованная нормализация) [citation:2]
-				"atempo=%.1f,"+ // Замедление [citation:2]
-				"aecho=0.06:0.9:50:0.7,"+ // Плавное эхо для объёма [citation:2]
-				"firequalizer=gain_entry='entry(0,8);entry(250,4);entry(1000,2);entry(4000,-2);entry(16000,-6)'", // Баланс частот: +8dB на басах, -6dB на высоких для чистоты
+			"volume=6.4dB,"+
+				"atempo=%.1f,"+
+				"aecho=0.06:0.9:50:0.7,"+
+				"firequalizer=gain_entry='entry(0,8);entry(250,4);entry(1000,2);entry(4000,-2);entry(16000,-6)'",
 			percent,
 		),
 		"-y",
@@ -252,3 +251,4 @@ func (d *Downloader) SlowAudio(inputPath string, percent float64) (string, error
 	log.Printf("✅ Slowed + Reverb готово: %s (%.0f%%)", outputPath, percent*100)
 	return outputPath, nil
 }
+
