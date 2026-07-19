@@ -215,16 +215,12 @@ func (d *Downloader) SlowAudio(inputPath string, percent float64) (string, error
 	base := strings.TrimSuffix(inputPath, ext)
 	outputPath := fmt.Sprintf("%s_slowed_reverb_%.0f%s", base, percent*100, ext)
 
-	// Качественный slowed + reverb
+	// Чистый slowed + усиление басов (без эха)
 	cmd := exec.Command(
 		"ffmpeg",
 		"-i", inputPath,
-		"-filter:a",
-		fmt.Sprintf(
-			"atempo=%.1f, aecho=0.8:0.9:1000:0.3, "+
-				"aecho=0.8:0.9:2000:0.2, "+
-				"aecho=0.8:0.9:3000:0.1, "+
-				"bass=g=5:f=110:w=0.6",
+		"-filter:a", fmt.Sprintf(
+			"atempo=%.1f, bass=g=5:f=110:w=0.6",
 			percent,
 		),
 		"-y",
@@ -245,6 +241,6 @@ func (d *Downloader) SlowAudio(inputPath string, percent float64) (string, error
 		return "", fmt.Errorf("ffmpeg ошибка: %w\n%s", err, string(errBytes))
 	}
 
-	log.Printf("✅ Slowed + Reverb готово: %s (%.0f%%)", outputPath, percent*100)
+	log.Printf("✅ Slowed готово: %s (%.0f%%)", outputPath, percent*100)
 	return outputPath, nil
 }
