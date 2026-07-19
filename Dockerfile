@@ -17,8 +17,11 @@ RUN go mod download
 # Копируем код
 COPY . .
 
-# 🔥 ВОТ ЗДЕСЬ ДОБАВЛЯЕМ КОПИРОВАНИЕ КУКОВ:
+# Копируем куки
 COPY cookies.txt /app/cookies.txt
+
+# 🔥 НОВАЯ СТРОКА: Копируем файл реверберации
+COPY hall.wav /app/hall.wav
 
 # Собираем бота
 RUN go build -o bot cmd/bot/main.go
