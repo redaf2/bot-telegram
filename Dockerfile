@@ -3,10 +3,15 @@ FROM golang:1.24-alpine
 # Добавляем репозиторий, где есть yt-dlp
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
 
-# Устанавливаем ffmpeg и yt-dlp через apk
+# Устанавливаем ffmpeg, yt-dlp и Python с pip
 RUN apk update && apk add --no-cache \
     ffmpeg \
-    yt-dlp
+    yt-dlp \
+    python3 \
+    py3-pip
+
+# 🔥 НОВАЯ СТРОКА: Обновляем yt-dlp до последней версии (вставляем СЮДА)
+RUN pip3 install --upgrade yt-dlp
 
 WORKDIR /app
 
@@ -20,7 +25,7 @@ COPY . .
 # Копируем куки
 COPY cookies.txt /app/cookies.txt
 
-# 🔥 НОВАЯ СТРОКА: Копируем файл реверберации
+# Копируем файл реверберации
 COPY hall.wav /app/hall.wav
 
 # Собираем бота
