@@ -217,23 +217,20 @@ func (d *Downloader) SlowAudio(inputPath string, percent float64) (string, error
 
 	// Шаг 1: Измеряем и нормализуем громкость, затем замедляем и добавляем эффекты
 	cmd := exec.Command(
-		"ffmpeg",
-		"-i", inputPath,
-		"-af",
-		// 1. Измеряем максимальную громкость (анализ), затем применяем её в этом же фильтре
-		// 2. Замедляем на заданный процент
-		// 3. Добавляем плавное эхо для глубины
-		// 4. Поднимаем высокие частоты для чёткости речи, убираем лишний низ, чтобы не было глухоты
-		fmt.Sprintf(
-			"volume=6.4dB,"+ // Поднимаем громкость на +6.4dB (рекомендованная нормализация) [citation:2]
-				"atempo=%.1f,"+ // Замедление [citation:2]
-				"aecho=0.06:0.9:50:0.7,"+ // Плавное эхо для объёма [citation:2]
-				"firequalizer=gain_entry='entry(0,8);entry(250,4);entry(1000,2);entry(4000,-2);entry(16000,-6)'", // Баланс частот: +8dB на басах, -6dB на высоких для чистоты
-			percent,
-		),
-		"-y",
-		outputPath,
-	)
+cmd := exec.Command(
+    "ffmpeg",
+    "-i", inputPath,
+    "-af",
+    fmt.Sprintf(
+        "volume=6.4dB,"+
+        "atempo=%.1f,"+
+        "aecho=0.06:0.9:50:0.7,"+
+        "firequalizer=gain_entry='entry(0,24);entry(250,12);entry(500,4);entry(1000,2);entry(4000,-4);entry(16000,-20)'",
+        percent,
+    ),
+    "-y",
+    outputPath,
+)
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
