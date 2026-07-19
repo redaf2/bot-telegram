@@ -3,15 +3,10 @@ FROM golang:1.24-alpine
 # Добавляем репозиторий, где есть yt-dlp
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/testing" >> /etc/apk/repositories
 
-# Устанавливаем ffmpeg, yt-dlp и Python с pip
+# Устанавливаем ffmpeg и yt-dlp через apk
 RUN apk update && apk add --no-cache \
     ffmpeg \
-    yt-dlp \
-    python3 \
-    py3-pip
-
-# 🔥 НОВАЯ СТРОКА: Обновляем yt-dlp до последней версии (вставляем СЮДА)
-RUN pip3 install --upgrade yt-dlp
+    yt-dlp
 
 WORKDIR /app
 
